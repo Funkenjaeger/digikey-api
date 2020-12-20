@@ -12,9 +12,21 @@ from digikey.v3.batchproductdetails import (BatchProductDetailsRequest, BatchPro
 logger = logging.getLogger(__name__)
 
 
+class ApiRateLimitInfo(object):
+    def __init__(self, rate_limit, rate_limit_rem):
+        self.rate_limit = rate_limit
+        self.rate_limit_rem = rate_limit_rem
+
+
+rate_limit_info = {'product_information': ApiRateLimitInfo(None, None), 'order_support': ApiRateLimitInfo(None, None)}
+
+
 class DigikeyApiWrapper(object):
+
     def __init__(self, wrapped_function, module):
         self.sandbox = False
+
+        self.rate_limit_info = ApiRateLimitInfo(None, None)
 
         apinames = {
             digikey.v3.productinformation: 'Search',
@@ -67,9 +79,9 @@ class DigikeyApiWrapper(object):
     @staticmethod
     def _print_remaining_requests(header):
         try:
-            rate_limit = header['X-RateLimit-Limit']
-            rate_limit_rem = header['X-RateLimit-Remaining']
-            logger.debug('Requests remaining: [{}/{}]'.format(rate_limit_rem, rate_limit))
+            rl = ApiRateLimitInfo(int(header['X-RateLimit-Limit']), int(header['X-RateLimit-Remaining']))
+            logger.debug('Requests remaining: [{}/{}]'.format(rl.rate_limit_rem, rl.rate_limit))
+            return rl
         except KeyError:
             pass
 
@@ -78,7 +90,7 @@ class DigikeyApiWrapper(object):
             func = getattr(self._api_instance, self.wrapped_function)
             logger.debug(f'CALL wrapped -> {func.__qualname__}')
             api_response = func(*args, self.authorization, self.x_digikey_client_id, **kwargs)
-            self._print_remaining_requests(api_response[2])
+            self.rate_limit_info = self._print_remaining_requests(api_response[2])
             return api_response[0]
         except ApiException as e:
             logger.error(f'Exception when calling {self.wrapped_function}: {e}')
@@ -120,11 +132,14 @@ def suggested_parts(*args, **kwargs) -> ProductDetails:
 
 
 def manufacturer_product_details(*args, **kwargs) -> KeywordSearchResponse:
+    global rate_limit_info
     client = DigikeyApiWrapper('manufacturer_product_details_with_http_info', digikey.v3.productinformation)
 
     if 'body' in kwargs and type(kwargs['body']) == ManufacturerProductDetailsRequest:
         logger.info(f'Search for: {kwargs["body"].manufacturer_product}')
-        return client.call_api_function(*args, **kwargs)
+        result = client.call_api_function(*args, **kwargs)
+        rate_limit_info['product_information'] = client.rate_limit_info
+        return result
     else:
         raise DigikeyError('Please provide a valid ManufacturerProductDetailsRequest argument')
 
