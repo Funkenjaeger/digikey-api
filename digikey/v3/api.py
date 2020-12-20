@@ -11,6 +11,7 @@ from digikey.v3.batchproductdetails import (BatchProductDetailsRequest, BatchPro
 
 logger = logging.getLogger(__name__)
 
+
 class DigikeyApiWrapper(object):
     def __init__(self, wrapped_function, module):
         self.sandbox = False
